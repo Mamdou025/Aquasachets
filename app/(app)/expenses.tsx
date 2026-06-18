@@ -12,11 +12,9 @@ import {
 import { useFocusEffect } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
-import {
-  ExpenseStore,
-  generateId,
-  type ExpenseEntry,
-} from "@/lib/store";
+import { ExpenseStore, generateId, type ExpenseEntry } from "@/lib/store";
+import { USE_DB_BACKEND } from "@/constants/data-source";
+import { useDbExpenses, useCreateDbExpense } from "@/hooks/use-db";
 
 const CATEGORIES = ["Variable", "Fixe", "Distribution", "Ponctuel", "Amortissement"] as const;
 
@@ -25,26 +23,29 @@ function getToday(): string {
 }
 
 export default function ExpensesScreen() {
-  const [entries, setEntries] = useState<ExpenseEntry[]>([]);
+  const [localEntries, setLocalEntries] = useState<ExpenseEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
 
-  // Form state
   const [date, setDate] = useState(getToday());
   const [category, setCategory] = useState<ExpenseEntry["category"]>("Variable");
   const [designation, setDesignation] = useState("");
   const [amount, setAmount] = useState("");
   const [supplier, setSupplier] = useState("");
 
-  const loadData = useCallback(async () => {
+  const dbExpenses = useDbExpenses();
+  const createDbExpense = useCreateDbExpense();
+
+  const entries: ExpenseEntry[] = USE_DB_BACKEND
+    ? (dbExpenses.data ?? [])
+    : localEntries;
+
+  const loadLocal = useCallback(async () => {
+    if (USE_DB_BACKEND) return;
     const data = await ExpenseStore.getAll();
-    setEntries(data.sort((a, b) => b.date.localeCompare(a.date)));
+    setLocalEntries(data.sort((a, b) => b.date.localeCompare(a.date)));
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  useFocusEffect(useCallback(() => { loadLocal(); }, [loadLocal]));
 
   const handleAdd = async () => {
     const amt = parseFloat(amount);
@@ -54,30 +55,19 @@ export default function ExpensesScreen() {
       else Alert.alert("Erreur", msg);
       return;
     }
-
-    const entry: ExpenseEntry = {
-      id: generateId(),
-      date,
-      category,
-      designation: designation.trim(),
-      amount: amt,
-      type: category,
-      supplier: supplier.trim(),
-    };
-
-    await ExpenseStore.add(entry);
-    setDesignation("");
-    setAmount("");
-    setSupplier("");
-    setShowForm(false);
-    await loadData();
+    if (USE_DB_BACKEND) {
+      await createDbExpense.mutateAsync({ date, category, designation: designation.trim(), amount: amt, type: category, supplier: supplier.trim() });
+    } else {
+      await ExpenseStore.add({ id: generateId(), date, category, designation: designation.trim(), amount: amt, type: category, supplier: supplier.trim() });
+      await loadLocal();
+    }
+    setDesignation(""); setAmount(""); setSupplier(""); setShowForm(false);
   };
 
   const totalMonth = entries
     .filter((e) => e.date.startsWith(getToday().substring(0, 7)))
     .reduce((sum, e) => sum + e.amount, 0);
 
-  // Répartition par catégorie
   const byCategory = CATEGORIES.map((cat) => ({
     category: cat,
     total: entries

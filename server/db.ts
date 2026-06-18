@@ -1,92 +1,138 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+import { eq, sql } from "drizzle-orm";
+import * as fs from "fs";
+import * as path from "path";
+import * as schema from "../drizzle/schema";
+import type { InsertUser } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+const DB_FILE = process.env.DATABASE_URL
+  ? process.env.DATABASE_URL
+  : path.resolve(process.cwd(), "data/aquasachet.db");
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+// Ensure the data directory exists before libsql tries to open the file
+function ensureDataDir() {
+  if (DB_FILE.startsWith("file:") || !DB_FILE.includes("://")) {
+    const filePath = DB_FILE.replace(/^file:/, "");
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+const DB_URL = DB_FILE.startsWith("libsql://") || DB_FILE.startsWith("http")
+  ? DB_FILE
+  : `file:${DB_FILE.replace(/^file:/, "")}`;
+
+let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+
+export function getDb() {
+  if (_db) return _db;
+  ensureDataDir();
+  const client = createClient({ url: DB_URL });
+  _db = drizzle(client, { schema });
   return _db;
 }
 
+// ─── Users ────────────────────────────────────────────────────────────────────
+
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
+  if (!user.openId) throw new Error("User openId is required for upsert");
+  const db = getDb();
+  const existing = await db.select().from(schema.users).where(eq(schema.users.openId, user.openId)).limit(1);
+  const now = new Date().toISOString();
+  if (existing.length > 0) {
+    await db.update(schema.users)
+      .set({ name: user.name, email: user.email, updatedAt: now, lastSignedIn: now })
+      .where(eq(schema.users.openId, user.openId));
+  } else {
+    const role = user.openId === ENV.ownerOpenId ? "admin" : "user";
+    await db.insert(schema.users).values({ ...user, role, lastSignedIn: now, createdAt: now, updatedAt: now });
   }
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  const db = getDb();
+  const result = await db.select().from(schema.users).where(eq(schema.users.openId, openId)).limit(1);
+  return result[0] ?? undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ─── Bootstrap: create tables if missing ─────────────────────────────────────
+
+export async function bootstrapDb() {
+  const db = getDb();
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      openId TEXT NOT NULL UNIQUE, name TEXT, email TEXT,
+      loginMethod TEXT, role TEXT NOT NULL DEFAULT 'user',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+      lastSignedIn TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS clients (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, zone TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL DEFAULT (date('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS commerciaux (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '', zone TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS production_entries (
+      id TEXT PRIMARY KEY, date TEXT NOT NULL, quantity INTEGER NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS sale_entries (
+      id TEXT PRIMARY KEY, date TEXT NOT NULL,
+      clientId TEXT NOT NULL DEFAULT '', clientName TEXT NOT NULL,
+      quantity INTEGER NOT NULL, mode TEXT NOT NULL,
+      commercial TEXT NOT NULL DEFAULT '', amount REAL NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS expense_entries (
+      id TEXT PRIMARY KEY, date TEXT NOT NULL, category TEXT NOT NULL,
+      designation TEXT NOT NULL, amount REAL NOT NULL,
+      type TEXT NOT NULL DEFAULT '', supplier TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS tournee_entries (
+      id TEXT PRIMARY KEY, date TEXT NOT NULL, livreur TEXT NOT NULL,
+      sortis INTEGER NOT NULL, rendus INTEGER NOT NULL, vendus INTEGER NOT NULL,
+      cashAttendu REAL NOT NULL, cashRemis REAL NOT NULL, ecart REAL NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS recovery_entries (
+      id TEXT PRIMARY KEY, saleId TEXT NOT NULL DEFAULT '',
+      clientName TEXT NOT NULL, amount REAL NOT NULL, date TEXT NOT NULL,
+      status TEXT NOT NULL, datePaiement TEXT,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS caisse_entries (
+      id TEXT PRIMARY KEY, date TEXT NOT NULL UNIQUE,
+      soldeInitial REAL NOT NULL, recettes REAL NOT NULL,
+      recouvrement REAL NOT NULL, depenses REAL NOT NULL, soldeFin REAL NOT NULL
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY, value TEXT NOT NULL
+    )
+  `);
+}

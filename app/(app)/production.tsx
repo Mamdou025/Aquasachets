@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Text,
   TextInput,
@@ -11,57 +12,61 @@ import {
 import { useFocusEffect } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
-import {
-  ProductionStore,
-  generateId,
-  type ProductionEntry,
-} from "@/lib/store";
+import { ProductionStore, generateId, type ProductionEntry } from "@/lib/store";
+import { USE_DB_BACKEND } from "@/constants/data-source";
+import { useDbProduction, useCreateDbProduction, useDeleteDbProduction } from "@/hooks/use-db";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
 
 export default function ProductionScreen() {
-  const [entries, setEntries] = useState<ProductionEntry[]>([]);
+  const [localEntries, setLocalEntries] = useState<ProductionEntry[]>([]);
   const [date, setDate] = useState(getToday());
   const [quantity, setQuantity] = useState("");
   const [showForm, setShowForm] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const dbProduction = useDbProduction();
+  const createDbProduction = useCreateDbProduction();
+  const deleteDbProduction = useDeleteDbProduction();
+
+  const entries: ProductionEntry[] = USE_DB_BACKEND
+    ? (dbProduction.data ?? [])
+    : localEntries;
+
+  const loadLocal = useCallback(async () => {
+    if (USE_DB_BACKEND) return;
     const data = await ProductionStore.getAll();
-    setEntries(data.sort((a, b) => b.date.localeCompare(a.date)));
+    setLocalEntries(data.sort((a, b) => b.date.localeCompare(a.date)));
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  useFocusEffect(useCallback(() => { loadLocal(); }, [loadLocal]));
 
   const handleAdd = async () => {
     const qty = parseInt(quantity, 10);
     if (!qty || qty <= 0) {
-      if (Platform.OS === "web") {
-        alert("Veuillez saisir une quantité valide");
-      } else {
-        Alert.alert("Erreur", "Veuillez saisir une quantité valide");
-      }
+      const msg = "Veuillez saisir une quantité valide";
+      if (Platform.OS === "web") alert(msg);
+      else Alert.alert("Erreur", msg);
       return;
     }
-    const entry: ProductionEntry = {
-      id: generateId(),
-      date,
-      quantity: qty,
-    };
-    await ProductionStore.add(entry);
+    if (USE_DB_BACKEND) {
+      await createDbProduction.mutateAsync({ date, quantity: qty });
+    } else {
+      await ProductionStore.add({ id: generateId(), date, quantity: qty });
+      await loadLocal();
+    }
     setQuantity("");
     setShowForm(false);
-    await loadData();
   };
 
   const handleDelete = async (id: string) => {
-    await ProductionStore.delete(id);
-    await loadData();
+    if (USE_DB_BACKEND) {
+      await deleteDbProduction.mutateAsync({ id });
+    } else {
+      await ProductionStore.delete(id);
+      await loadLocal();
+    }
   };
 
   const totalMonth = entries
@@ -70,13 +75,10 @@ export default function ProductionScreen() {
 
   return (
     <ScreenContainer>
-      {/* Header */}
       <View className="px-4 pt-4 pb-2 flex-row justify-between items-center">
         <View>
           <Text className="text-2xl font-bold text-foreground">Production</Text>
-          <Text className="text-sm text-muted mt-1">
-            Total ce mois : {totalMonth} packs
-          </Text>
+          <Text className="text-sm text-muted mt-1">Total ce mois : {totalMonth} packs</Text>
         </View>
         <TouchableOpacity
           className="bg-primary rounded-full w-10 h-10 items-center justify-center"
@@ -87,46 +89,38 @@ export default function ProductionScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Form */}
       {showForm && (
         <View className="mx-4 mt-3 bg-surface rounded-xl p-4 border border-border">
-          <Text className="text-sm font-semibold text-foreground mb-3">
-            Nouvelle production
-          </Text>
+          <Text className="text-sm font-semibold text-foreground mb-3">Nouvelle production</Text>
           <View className="mb-3">
             <Text className="text-xs text-muted mb-1">Date</Text>
             <TextInput
               className="bg-background border border-border rounded-lg px-3 py-2 text-foreground"
-              value={date}
-              onChangeText={setDate}
-              placeholder="AAAA-MM-JJ"
-              placeholderTextColor="#5A7A94"
+              value={date} onChangeText={setDate} placeholder="AAAA-MM-JJ" placeholderTextColor="#5A7A94"
             />
           </View>
           <View className="mb-3">
             <Text className="text-xs text-muted mb-1">Quantité (packs)</Text>
             <TextInput
               className="bg-background border border-border rounded-lg px-3 py-2 text-foreground"
-              value={quantity}
-              onChangeText={setQuantity}
-              keyboardType="numeric"
-              placeholder="Ex: 150"
-              placeholderTextColor="#5A7A94"
-              returnKeyType="done"
+              value={quantity} onChangeText={setQuantity} keyboardType="numeric"
+              placeholder="Ex: 150" placeholderTextColor="#5A7A94" returnKeyType="done"
               onSubmitEditing={handleAdd}
             />
           </View>
           <TouchableOpacity
             className="bg-primary rounded-lg py-3 items-center"
-            onPress={handleAdd}
-            activeOpacity={0.7}
+            onPress={handleAdd} activeOpacity={0.7}
+            disabled={createDbProduction.isPending}
           >
-            <Text className="text-background font-semibold">Enregistrer</Text>
+            {createDbProduction.isPending
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text className="text-background font-semibold">Enregistrer</Text>
+            }
           </TouchableOpacity>
         </View>
       )}
 
-      {/* List */}
       <FlatList
         data={entries}
         keyExtractor={(item) => item.id}
@@ -135,22 +129,19 @@ export default function ProductionScreen() {
           <View className="bg-surface rounded-xl p-4 mb-3 border border-border flex-row justify-between items-center">
             <View>
               <Text className="text-sm text-muted">{item.date}</Text>
-              <Text className="text-lg font-bold text-foreground mt-1">
-                {item.quantity} packs
-              </Text>
+              <Text className="text-lg font-bold text-foreground mt-1">{item.quantity} packs</Text>
             </View>
-            <TouchableOpacity
-              onPress={() => handleDelete(item.id)}
-              activeOpacity={0.7}
-              style={{ padding: 8 }}
-            >
+            <TouchableOpacity onPress={() => handleDelete(item.id)} activeOpacity={0.7} style={{ padding: 8 }}>
               <Text className="text-error text-sm">Suppr.</Text>
             </TouchableOpacity>
           </View>
         )}
         ListEmptyComponent={
           <View className="items-center mt-8">
-            <Text className="text-muted">Aucune production enregistrée</Text>
+            {USE_DB_BACKEND && dbProduction.isLoading
+              ? <ActivityIndicator color="#0077B6" />
+              : <Text className="text-muted">Aucune production enregistrée</Text>
+            }
           </View>
         }
       />
