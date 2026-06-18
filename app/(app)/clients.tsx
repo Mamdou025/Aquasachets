@@ -14,8 +14,9 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { ScreenContainer } from "@/components/screen-container";
 import { ClientStore, generateId, type Client } from "@/lib/store";
 import { useColors } from "@/hooks/use-colors";
-import { USE_ODOO_BACKEND } from "@/constants/data-source";
+import { USE_ODOO_BACKEND, USE_DB_BACKEND } from "@/constants/data-source";
 import { useArchiveOdooClient, useCreateOdooClient, useOdooClients } from "@/hooks/use-odoo";
+import { useDbClients, useCreateDbClient, useDeleteDbClient } from "@/hooks/use-db";
 
 export default function ClientsScreen() {
   const router = useRouter();
@@ -28,6 +29,9 @@ export default function ClientsScreen() {
   const odooClients = useOdooClients();
   const createOdooClient = useCreateOdooClient();
   const archiveOdooClient = useArchiveOdooClient();
+  const dbClients = useDbClients();
+  const createDbClient = useCreateDbClient();
+  const deleteDbClient = useDeleteDbClient();
 
   const displayedClients: Client[] = USE_ODOO_BACKEND
     ? (odooClients.data ?? []).map((client) => ({
@@ -35,6 +39,10 @@ export default function ClientsScreen() {
         name: client.name,
         zone: client.zone,
         phone: client.phone,
+      }))
+    : USE_DB_BACKEND
+    ? (dbClients.data ?? []).map((c) => ({
+        id: c.id, name: c.name, zone: c.zone, phone: c.phone,
       }))
     : clients;
 
@@ -57,32 +65,22 @@ export default function ClientsScreen() {
       return;
     }
     if (USE_ODOO_BACKEND) {
-      await createOdooClient.mutateAsync({
-        name: name.trim(),
-        zone: zone.trim() || undefined,
-        phone: phone.trim() || undefined,
-      });
+      await createOdooClient.mutateAsync({ name: name.trim(), zone: zone.trim() || undefined, phone: phone.trim() || undefined });
+    } else if (USE_DB_BACKEND) {
+      await createDbClient.mutateAsync({ name: name.trim(), zone: zone.trim() || undefined, phone: phone.trim() || undefined });
     } else {
-      await ClientStore.add({
-        id: generateId(),
-        name: name.trim(),
-        zone: zone.trim(),
-        phone: phone.trim(),
-      });
+      await ClientStore.add({ id: generateId(), name: name.trim(), zone: zone.trim(), phone: phone.trim() });
     }
 
-    setName("");
-    setZone("");
-    setPhone("");
-    setShowForm(false);
-    if (!USE_ODOO_BACKEND) {
-      await loadData();
-    }
+    setName(""); setZone(""); setPhone(""); setShowForm(false);
+    if (!USE_ODOO_BACKEND && !USE_DB_BACKEND) await loadData();
   };
 
   const handleDelete = async (id: string) => {
     if (USE_ODOO_BACKEND) {
       await archiveOdooClient.mutateAsync({ id: Number(id) });
+    } else if (USE_DB_BACKEND) {
+      await deleteDbClient.mutateAsync({ id });
     } else {
       await ClientStore.delete(id);
       await loadData();
@@ -186,7 +184,7 @@ export default function ClientsScreen() {
         ListEmptyComponent={
           <View className="items-center mt-8">
             <Text className="text-muted">
-              {USE_ODOO_BACKEND && odooClients.isLoading
+              {(USE_ODOO_BACKEND && odooClients.isLoading) || (USE_DB_BACKEND && dbClients.isLoading)
                 ? "Chargement des clients..."
                 : "Aucun client enregistré"}
             </Text>

@@ -6,6 +6,8 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { ScreenContainer } from "@/components/screen-container";
 import { RecoveryStore, type RecoveryEntry } from "@/lib/store";
 import { useColors } from "@/hooks/use-colors";
+import { USE_DB_BACKEND } from "@/constants/data-source";
+import { useDbRecovery, useUpdateDbRecoveryStatus } from "@/hooks/use-db";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -14,42 +16,39 @@ function getToday(): string {
 export default function RecouvrementScreen() {
   const router = useRouter();
   const colors = useColors();
-  const [entries, setEntries] = useState<RecoveryEntry[]>([]);
+  const [localEntries, setLocalEntries] = useState<RecoveryEntry[]>([]);
   const [filter, setFilter] = useState<"all" | "en_cours" | "paye" | "en_retard">("all");
 
-  const loadData = useCallback(async () => {
+  const dbRecovery = useDbRecovery();
+  const updateDbStatus = useUpdateDbRecoveryStatus();
+
+  const entries: RecoveryEntry[] = USE_DB_BACKEND
+    ? (dbRecovery.data ?? []).map((r) => ({ ...r, datePaiement: r.datePaiement ?? undefined }))
+    : localEntries;
+
+  const loadLocal = useCallback(async () => {
+    if (USE_DB_BACKEND) return;
     const data = await RecoveryStore.getAll();
-    // Mark overdue entries (more than 7 days)
     const today = new Date();
     const updated = data.map((entry) => {
       if (entry.status === "en_cours") {
-        const saleDate = new Date(entry.date);
-        const diffDays = Math.floor(
-          (today.getTime() - saleDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        if (diffDays > 7) {
-          return { ...entry, status: "en_retard" as const };
-        }
+        const diffDays = Math.floor((today.getTime() - new Date(entry.date).getTime()) / 86400000);
+        if (diffDays > 7) return { ...entry, status: "en_retard" as const };
       }
       return entry;
     });
-    setEntries(updated.sort((a, b) => b.date.localeCompare(a.date)));
+    setLocalEntries(updated.sort((a, b) => b.date.localeCompare(a.date)));
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  useFocusEffect(useCallback(() => { loadLocal(); }, [loadLocal]));
 
   const handleMarkPaid = async (entry: RecoveryEntry) => {
-    const updated: RecoveryEntry = {
-      ...entry,
-      status: "paye",
-      datePaiement: getToday(),
-    };
-    await RecoveryStore.update(updated);
-    await loadData();
+    if (USE_DB_BACKEND) {
+      await updateDbStatus.mutateAsync({ id: entry.id, status: "paye", datePaiement: getToday() });
+    } else {
+      await RecoveryStore.update({ ...entry, status: "paye", datePaiement: getToday() });
+      await loadLocal();
+    }
   };
 
   const filtered = filter === "all" ? entries : entries.filter((e) => e.status === filter);

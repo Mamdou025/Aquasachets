@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useFocusEffect } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -21,8 +22,9 @@ import {
   type Client,
   type Settings,
 } from "@/lib/store";
-import { USE_ODOO_BACKEND } from "@/constants/data-source";
+import { USE_ODOO_BACKEND, USE_DB_BACKEND } from "@/constants/data-source";
 import { useCreateOdooSale, useOdooSales } from "@/hooks/use-odoo";
+import { useDbSales, useCreateDbSale } from "@/hooks/use-db";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -33,6 +35,7 @@ export default function SalesScreen() {
   const [clients, setClients] = useState<Client[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState("");
 
   // Form state
   const [date, setDate] = useState(getToday());
@@ -42,6 +45,8 @@ export default function SalesScreen() {
   const [commercial, setCommercial] = useState("");
   const odooSales = useOdooSales();
   const createOdooSale = useCreateOdooSale();
+  const dbSales = useDbSales(search);
+  const createDbSale = useCreateDbSale();
 
   const displayedEntries: SaleEntry[] = USE_ODOO_BACKEND
     ? (odooSales.data ?? []).map((sale) => ({
@@ -51,9 +56,11 @@ export default function SalesScreen() {
         clientName: sale.clientName,
         quantity: sale.quantity,
         mode: sale.paymentMode === "credit" ? "credit" : "cash",
-        commercial: sale.state,
+        commercial: sale.salesRepName || sale.state,
         amount: sale.amountTotal,
       }))
+    : USE_DB_BACKEND
+    ? (dbSales.data ?? [])
     : entries;
 
   const loadData = useCallback(async () => {
@@ -97,38 +104,34 @@ export default function SalesScreen() {
     };
 
     if (USE_ODOO_BACKEND) {
-      await createOdooSale.mutateAsync({
-        partnerName: entry.clientName,
-        quantity: qty,
-        priceUnit: prix,
-        paymentMode: mode,
-        confirm: true,
-      });
+      await createOdooSale.mutateAsync({ partnerName: entry.clientName, quantity: qty, priceUnit: prix, paymentMode: mode, confirm: true });
+    } else if (USE_DB_BACKEND) {
+      await createDbSale.mutateAsync({ date: entry.date, clientName: entry.clientName, quantity: qty, mode, commercial: commercial.trim(), amount });
     } else {
       await SaleStore.add(entry);
-
-      // Si crédit, ajouter au recouvrement
       if (mode === "credit") {
-        await RecoveryStore.add({
-          id: generateId(),
-          saleId: entry.id,
-          clientName: entry.clientName,
-          amount,
-          date: entry.date,
-          status: "en_cours",
-        });
+        await RecoveryStore.add({ id: generateId(), saleId: entry.id, clientName: entry.clientName, amount, date: entry.date, status: "en_cours" });
       }
     }
 
-    setClientName("");
-    setQuantity("");
-    setCommercial("");
-    setMode("cash");
-    setShowForm(false);
-    if (!USE_ODOO_BACKEND) {
-      await loadData();
-    }
+    setClientName(""); setQuantity(""); setCommercial(""); setMode("cash"); setShowForm(false);
+    if (!USE_ODOO_BACKEND && !USE_DB_BACKEND) await loadData();
   };
+
+  // DB backend filters server-side; other backends filter client-side
+  const filteredEntries = useMemo(() => {
+    if (USE_DB_BACKEND) return displayedEntries; // already filtered by server
+    const q = search.trim().toLowerCase();
+    if (!q) return displayedEntries;
+    return displayedEntries.filter(
+      (e) =>
+        e.clientName.toLowerCase().includes(q) ||
+        e.date.includes(q) ||
+        e.mode.includes(q) ||
+        (e.commercial && e.commercial.toLowerCase().includes(q)) ||
+        String(e.amount).includes(q),
+    );
+  }, [displayedEntries, search]);
 
   const totalMonth = displayedEntries
     .filter((e) => e.date.startsWith(getToday().substring(0, 7)))
@@ -151,6 +154,32 @@ export default function SalesScreen() {
         >
           <Text className="text-background text-xl font-bold">+</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Search bar */}
+      <View className="px-4 pb-2">
+        <View className="flex-row items-center bg-surface border border-border rounded-xl px-3 py-2 gap-2">
+          <MaterialIcons name="search" size={18} color="#5A7A94" />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Rechercher client, date, mode…"
+            placeholderTextColor="#5A7A94"
+            className="flex-1 text-foreground text-sm"
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch("")} activeOpacity={0.7}>
+              <MaterialIcons name="close" size={16} color="#5A7A94" />
+            </TouchableOpacity>
+          )}
+        </View>
+        {search.length > 0 && (
+          <Text className="text-xs text-muted mt-1 pl-1">
+            {filteredEntries.length} résultat{filteredEntries.length !== 1 ? "s" : ""}
+          </Text>
+        )}
       </View>
 
       {/* Form */}
@@ -251,7 +280,7 @@ export default function SalesScreen() {
 
       {/* List */}
       <FlatList
-        data={displayedEntries}
+        data={filteredEntries}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         renderItem={({ item }) => (
@@ -292,6 +321,8 @@ export default function SalesScreen() {
             <Text className="text-muted">
               {USE_ODOO_BACKEND && odooSales.isLoading
                 ? "Chargement des ventes..."
+                : search.length > 0
+                ? `Aucun résultat pour "${search}"`
                 : "Aucune vente enregistrée"}
             </Text>
           </View>

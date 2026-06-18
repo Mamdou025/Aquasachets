@@ -20,6 +20,18 @@ const MENU_ITEMS: MenuItem[] = [
     route: "/rapport",
   },
   {
+    title: "Livraisons rouleaux",
+    subtitle: "Réception matières premières",
+    icon: "inventory-2",
+    route: "/livraisons",
+  },
+  {
+    title: "Commerciaux",
+    subtitle: "Performance des représentants",
+    icon: "badge",
+    route: "/commerciaux",
+  },
+  {
     title: "Clients",
     subtitle: "Gérer la liste des clients",
     icon: "people",

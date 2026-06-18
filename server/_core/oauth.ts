@@ -20,7 +20,7 @@ async function syncUser(userInfo: {
     throw new Error("openId missing from user info");
   }
 
-  const lastSignedIn = new Date();
+  const lastSignedIn = new Date().toISOString();
   await upsertUser({
     openId: userInfo.openId,
     name: userInfo.name || null,
@@ -57,7 +57,7 @@ function buildUserResponse(
     name: user?.name ?? null,
     email: user?.email ?? null,
     loginMethod: user?.loginMethod ?? null,
-    lastSignedIn: (user?.lastSignedIn ?? new Date()).toISOString(),
+    lastSignedIn: typeof user?.lastSignedIn === "string" ? user.lastSignedIn : new Date().toISOString(),
   };
 }
 

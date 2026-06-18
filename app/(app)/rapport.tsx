@@ -15,6 +15,8 @@ import {
   type SaleEntry,
 } from "@/lib/store";
 import { useColors } from "@/hooks/use-colors";
+import { USE_DB_BACKEND } from "@/constants/data-source";
+import { useDbProduction, useDbSales, useDbExpenses, useDbRecovery } from "@/hooks/use-db";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -27,29 +29,32 @@ function fmt(n: number): string {
 export default function RapportJournalierScreen() {
   const colors = useColors();
   const [selectedDate, setSelectedDate] = useState(getToday());
-  const [production, setProduction] = useState<ProductionEntry[]>([]);
-  const [sales, setSales] = useState<SaleEntry[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
-  const [recoveries, setRecoveries] = useState<RecoveryEntry[]>([]);
+  const [localProduction, setLocalProduction] = useState<ProductionEntry[]>([]);
+  const [localSales, setLocalSales] = useState<SaleEntry[]>([]);
+  const [localExpenses, setLocalExpenses] = useState<ExpenseEntry[]>([]);
+  const [localRecoveries, setLocalRecoveries] = useState<RecoveryEntry[]>([]);
 
-  const loadData = useCallback(async () => {
+  const dbProduction = useDbProduction();
+  const dbSales = useDbSales();
+  const dbExpenses = useDbExpenses();
+  const dbRecovery = useDbRecovery();
+
+  const production: ProductionEntry[] = USE_DB_BACKEND ? (dbProduction.data ?? []) : localProduction;
+  const sales: SaleEntry[] = USE_DB_BACKEND ? (dbSales.data ?? []) as SaleEntry[] : localSales;
+  const expenses: ExpenseEntry[] = USE_DB_BACKEND ? (dbExpenses.data ?? []) as ExpenseEntry[] : localExpenses;
+  const recoveries: RecoveryEntry[] = USE_DB_BACKEND
+    ? (dbRecovery.data ?? []).map((r) => ({ ...r, datePaiement: r.datePaiement ?? undefined }))
+    : localRecoveries;
+
+  const loadLocal = useCallback(async () => {
+    if (USE_DB_BACKEND) return;
     const [prod, sal, exp, rec] = await Promise.all([
-      ProductionStore.getAll(),
-      SaleStore.getAll(),
-      ExpenseStore.getAll(),
-      RecoveryStore.getAll(),
+      ProductionStore.getAll(), SaleStore.getAll(), ExpenseStore.getAll(), RecoveryStore.getAll(),
     ]);
-    setProduction(prod);
-    setSales(sal);
-    setExpenses(exp);
-    setRecoveries(rec);
+    setLocalProduction(prod); setLocalSales(sal); setLocalExpenses(exp); setLocalRecoveries(rec);
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  useFocusEffect(useCallback(() => { loadLocal(); }, [loadLocal]));
 
   // Filter by selected date
   const prodDay = production.filter((p) => p.date === selectedDate);

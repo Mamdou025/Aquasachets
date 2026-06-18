@@ -7,6 +7,10 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { bootstrapDb } from "../db";
+import { seedDatabase } from "../appRouter";
+import { getDb } from "../db";
+import * as schema from "../../drizzle/schema";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -28,6 +32,14 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Bootstrap SQLite tables and auto-seed if empty
+  await bootstrapDb();
+  const existing = await getDb().select().from(schema.saleEntries).limit(1);
+  if (existing.length === 0) {
+    console.log("[DB] Empty database — seeding with fictional data…");
+    await seedDatabase();
+  }
+
   const app = express();
   const server = createServer(app);
 
