@@ -14,6 +14,12 @@ interface MenuItem {
 
 const MENU_ITEMS: MenuItem[] = [
   {
+    title: "Rapport journalier",
+    subtitle: "Synthèse quotidienne imprimable",
+    icon: "assessment",
+    route: "/rapport",
+  },
+  {
     title: "Clients",
     subtitle: "Gérer la liste des clients",
     icon: "people",
@@ -44,9 +50,9 @@ const MENU_ITEMS: MenuItem[] = [
     route: "/recouvrement",
   },
   {
-    title: "Rapports",
+    title: "Rapports mensuels",
     subtitle: "Compte de résultat et rentabilité",
-    icon: "assessment",
+    icon: "bar-chart",
     route: "/rapports",
   },
   {
@@ -77,16 +83,10 @@ export default function MoreScreen() {
             activeOpacity={0.7}
           >
             <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center mr-3">
-              <MaterialIcons
-                name={item.icon as any}
-                size={22}
-                color={colors.primary}
-              />
+              <MaterialIcons name={item.icon as any} size={22} color={colors.primary} />
             </View>
             <View className="flex-1">
-              <Text className="text-base font-semibold text-foreground">
-                {item.title}
-              </Text>
+              <Text className="text-base font-semibold text-foreground">{item.title}</Text>
               <Text className="text-xs text-muted mt-0.5">{item.subtitle}</Text>
             </View>
             <MaterialIcons name="chevron-right" size={20} color={colors.muted} />

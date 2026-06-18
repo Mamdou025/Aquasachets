@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  odoo:
+    build:
+      context: .
+      dockerfile: docker/odoo/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8069:8069"
+      - "8072:8072"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./odoo-19.0:/odoo
+      - odoo-data:/var/lib/odoo
+      - ./docker/odoo/odoo.conf:/etc/odoo/odoo.conf:ro
+
+volumes:
+  pgdata:
+  odoo-data:

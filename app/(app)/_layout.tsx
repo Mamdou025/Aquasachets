@@ -1,15 +1,28 @@
-import { Tabs } from "expo-router";
+import { Platform, View } from "react-native";
+import { Slot, Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { Platform } from "react-native";
+import { AppSidebar } from "@/components/app-sidebar";
 import { useColors } from "@/hooks/use-colors";
 
-export default function TabLayout() {
+export default function AppLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
+
+  if (Platform.OS === "web") {
+    return (
+      <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.background }}>
+        <AppSidebar />
+        <View style={{ flex: 1, overflow: "auto" as any }}>
+          <Slot />
+        </View>
+      </View>
+    );
+  }
+
+  const bottomPadding = Math.max(insets.bottom, 8);
   const tabBarHeight = 56 + bottomPadding;
 
   return (
@@ -73,6 +86,15 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* Secondary screens — hidden from tab bar, accessible via "Plus" */}
+      <Tabs.Screen name="clients" options={{ href: null }} />
+      <Tabs.Screen name="caisse" options={{ href: null }} />
+      <Tabs.Screen name="rapport" options={{ href: null }} />
+      <Tabs.Screen name="rapports" options={{ href: null }} />
+      <Tabs.Screen name="recouvrement" options={{ href: null }} />
+      <Tabs.Screen name="settings" options={{ href: null }} />
+      <Tabs.Screen name="stock" options={{ href: null }} />
+      <Tabs.Screen name="tournees" options={{ href: null }} />
     </Tabs>
   );
 }

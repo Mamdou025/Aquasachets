@@ -1,0 +1,12 @@
+node_modules/
+.git/
+.expo/
+dist/
+web-build/
+*.log
+.env
+.env*.local
+*.tsbuildinfo
+.cache/
+.vscode/
+.idea/
