@@ -10,19 +10,19 @@ interface SidebarItem {
 }
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
-  { title: "Tableau de bord", icon: "dashboard", route: "/" },
-  { title: "Production", icon: "precision-manufacturing", route: "/production" },
-  { title: "Ventes", icon: "shopping-cart", route: "/sales" },
-  { title: "Clients", icon: "people", route: "/clients" },
-  { title: "Commerciaux", icon: "badge", route: "/commerciaux" },
-  { title: "Dépenses", icon: "receipt", route: "/expenses" },
-  { title: "Stock", icon: "inventory", route: "/stock" },
-  { title: "Livraisons rouleaux", icon: "inventory-2", route: "/livraisons" },
-  { title: "Recouvrement", icon: "account-balance-wallet", route: "/recouvrement" },
-  { title: "Tournées livreurs", icon: "local-shipping", route: "/tournees" },
-  { title: "Rapport journalier", icon: "assessment", route: "/rapport" },
-  { title: "Journal d'activité", icon: "history", route: "/caisse" },
-  { title: "Administration", icon: "settings", route: "/settings" },
+  { title: "Tableau de bord",    icon: "dashboard",              route: "/" },
+  { title: "Production",         icon: "precision-manufacturing", route: "/production" },
+  { title: "Ventes",             icon: "shopping-cart",          route: "/sales" },
+  { title: "Clients",            icon: "people-outline",         route: "/clients" },
+  { title: "Commerciaux",        icon: "badge",                  route: "/commerciaux" },
+  { title: "Dépenses",           icon: "receipt-long",           route: "/expenses" },
+  { title: "Stock",              icon: "inventory-2",            route: "/stock" },
+  { title: "Livraisons rouleaux",icon: "local-shipping",         route: "/livraisons" },
+  { title: "Recouvrement",       icon: "account-balance-wallet", route: "/recouvrement" },
+  { title: "Tournées livreurs",  icon: "directions-car",         route: "/tournees" },
+  { title: "Rapport journalier", icon: "insert-chart-outlined",  route: "/rapport" },
+  { title: "Journal d'activité", icon: "history",                route: "/caisse" },
+  { title: "Administration",     icon: "settings",               route: "/settings" },
 ];
 
 export function AppSidebar() {
@@ -36,48 +36,48 @@ export function AppSidebar() {
   };
 
   return (
-    <View
-      style={{
-        width: 192,
-        backgroundColor: colors.background,
-        borderRightWidth: 1,
-        borderRightColor: colors.border,
-        flexShrink: 0,
-      }}
-    >
+    <View style={{
+      width: 220,
+      backgroundColor: colors.surface,
+      borderRightWidth: 1,
+      borderRightColor: colors.border,
+      flexShrink: 0,
+    }}>
       {/* Logo */}
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingVertical: 14,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          flexDirection: "row",
+      <View style={{
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+      }}>
+        <View style={{
+          width: 32,
+          height: 32,
+          backgroundColor: colors.primary,
+          borderRadius: 8,
           alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <View
-          style={{
-            width: 28,
-            height: 28,
-            backgroundColor: colors.primary,
-            borderRadius: 6,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <MaterialIcons name="water-drop" size={16} color="#fff" />
+          justifyContent: "center",
+        }}>
+          <MaterialIcons name="water-drop" size={18} color="#fff" />
         </View>
-        <Text style={{ fontSize: 14, fontWeight: "700", color: colors.primary }}>
-          AquaSachet
-        </Text>
+        <View>
+          <Text style={{ fontSize: 15, fontWeight: "700", color: colors.foreground, lineHeight: 18 }}>
+            AquaSachet
+          </Text>
+          <Text style={{ fontSize: 10, color: colors.muted, marginTop: 1 }}>
+            Gestion de production
+          </Text>
+        </View>
       </View>
 
-      {/* Nav items */}
+      {/* Nav */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 8 }}
+        contentContainerStyle={{ paddingVertical: 10, paddingHorizontal: 10 }}
         showsVerticalScrollIndicator={false}
       >
         {SIDEBAR_ITEMS.map((item) => {
@@ -86,21 +86,21 @@ export function AppSidebar() {
             <TouchableOpacity
               key={item.title}
               onPress={() => router.push(item.route as any)}
-              activeOpacity={0.7}
+              activeOpacity={0.6}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 9,
-                paddingVertical: 8,
-                paddingHorizontal: 10,
-                borderRadius: 7,
-                marginBottom: 1,
-                backgroundColor: active ? colors.primary + "18" : "transparent",
+                gap: 10,
+                paddingVertical: 9,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                marginBottom: 2,
+                backgroundColor: active ? colors.primary + "15" : "transparent",
               }}
             >
               <MaterialIcons
                 name={item.icon as any}
-                size={17}
+                size={18}
                 color={active ? colors.primary : colors.muted}
               />
               <Text
@@ -114,6 +114,14 @@ export function AppSidebar() {
               >
                 {item.title}
               </Text>
+              {active && (
+                <View style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: colors.primary,
+                }} />
+              )}
             </TouchableOpacity>
           );
         })}

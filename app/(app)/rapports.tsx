@@ -1,17 +1,10 @@
-import { useCallback, useState } from "react";
 import { ScrollView, Text, View, TouchableOpacity } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 
 import { ScreenContainer } from "@/components/screen-container";
-import {
-  SaleStore,
-  ExpenseStore,
-  ProductionStore,
-  SettingsStore,
-  type Settings,
-} from "@/lib/store";
 import { useColors } from "@/hooks/use-colors";
+import { useDbSales, useDbExpenses, useDbProduction, useDbSettings } from "@/hooks/use-db";
 
 function getCurrentMonth(): string {
   const d = new Date();
@@ -29,77 +22,51 @@ function getMonthName(): string {
 export default function RapportsScreen() {
   const router = useRouter();
   const colors = useColors();
-  const [ca, setCa] = useState(0);
-  const [expenses, setExpenses] = useState<{ category: string; total: number }[]>([]);
-  const [totalExpenses, setTotalExpenses] = useState(0);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [prodMonth, setProdMonth] = useState(0);
-  const [salesMonth, setSalesMonth] = useState(0);
 
-  const loadData = useCallback(async () => {
-    const currentMonth = getCurrentMonth();
-    const [sales, exps, prod, sett] = await Promise.all([
-      SaleStore.getAll(),
-      ExpenseStore.getAll(),
-      ProductionStore.getAll(),
-      SettingsStore.get(),
-    ]);
+  const dbSales = useDbSales();
+  const dbExpenses = useDbExpenses();
+  const dbProduction = useDbProduction();
+  const dbSettings = useDbSettings();
 
-    const monthSales = sales.filter((s) => s.date.startsWith(currentMonth));
-    const monthExpenses = exps.filter((e) => e.date.startsWith(currentMonth));
-    const monthProd = prod.filter((p) => p.date.startsWith(currentMonth));
+  const currentMonth = getCurrentMonth();
+  const sales = (dbSales.data ?? []).filter((s) => s.date.startsWith(currentMonth));
+  const exps = (dbExpenses.data ?? []).filter((e) => e.date.startsWith(currentMonth));
+  const prod = (dbProduction.data ?? []).filter((p) => p.date.startsWith(currentMonth));
+  const settings = dbSettings.data;
 
-    setCa(monthSales.reduce((sum, s) => sum + s.amount, 0));
-    setSalesMonth(monthSales.reduce((sum, s) => sum + s.quantity, 0));
-    setProdMonth(monthProd.reduce((sum, p) => sum + p.quantity, 0));
-    setSettings(sett);
+  const ca = sales.reduce((sum, s) => sum + s.amount, 0);
+  const salesMonth = sales.reduce((sum, s) => sum + s.quantity, 0);
+  const prodMonth = prod.reduce((sum, p) => sum + p.quantity, 0);
+  const totalExpenses = exps.reduce((sum, e) => sum + e.amount, 0);
 
-    // Group expenses by category
-    const byCategory: Record<string, number> = {};
-    monthExpenses.forEach((e) => {
-      byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
-    });
-    const expList = Object.entries(byCategory).map(([category, total]) => ({
-      category,
-      total,
-    }));
-    setExpenses(expList);
-    setTotalExpenses(monthExpenses.reduce((sum, e) => sum + e.amount, 0));
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  const byCategory: Record<string, number> = {};
+  exps.forEach((e) => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
+  const expenseList = Object.entries(byCategory).map(([category, total]) => ({ category, total }));
 
   const resultatNet = ca - totalExpenses;
   const tauxMarge = ca > 0 ? ((resultatNet / ca) * 100).toFixed(1) : "0";
 
-  // Rentabilité
   const coutRevient = settings
-    ? settings.coutRouleaux +
-      settings.coutAntiscalant +
-      settings.coutEau +
-      settings.coutMembrane +
-      settings.coutElectricite +
-      settings.coutLoyer +
-      settings.coutSalaires +
-      settings.coutMaintenance +
-      settings.commissionCommercial +
+    ? settings.coutRouleaux + settings.coutAntiscalant + settings.coutEau +
+      settings.coutMembrane + settings.coutElectricite + settings.coutLoyer +
+      settings.coutSalaires + settings.coutMaintenance + settings.commissionCommercial +
       settings.coutCarburant
     : 460.78;
   const prixVente = settings?.prixVentePack ?? 650;
   const margeParPack = prixVente - coutRevient;
+
   const chargesFixes = settings
     ? (settings.coutElectricite + settings.coutLoyer + settings.coutSalaires + settings.coutMaintenance) * salesMonth
     : 0;
-  const margeSurVariable = prixVente - (settings?.coutRouleaux ?? 207.78) - (settings?.coutAntiscalant ?? 25) - (settings?.coutEau ?? 8) - (settings?.coutMembrane ?? 5);
+  const margeSurVariable = prixVente -
+    (settings?.coutRouleaux ?? 207.78) -
+    (settings?.coutAntiscalant ?? 25) -
+    (settings?.coutEau ?? 8) -
+    (settings?.coutMembrane ?? 5);
   const seuilRentabilite = margeSurVariable > 0 ? Math.ceil(chargesFixes / margeSurVariable) : 0;
 
   return (
     <ScreenContainer edges={["top", "left", "right"]}>
-      {/* Header */}
       <View className="px-4 pt-4 pb-2 flex-row items-center">
         <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7} style={{ marginRight: 12 }}>
           <MaterialIcons name="arrow-back" size={24} color={colors.foreground} />
@@ -113,43 +80,28 @@ export default function RapportsScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
         {/* Compte de résultat */}
         <View className="bg-surface rounded-xl p-4 border border-border mb-4">
-          <Text className="text-sm font-semibold text-foreground mb-4">
-            COMPTE DE RÉSULTAT
-          </Text>
-
+          <Text className="text-sm font-semibold text-foreground mb-4">COMPTE DE RÉSULTAT</Text>
           <View className="flex-row justify-between mb-3">
             <Text className="text-sm text-foreground font-medium">Chiffre d'affaires</Text>
-            <Text className="text-sm font-bold text-success">
-              {formatMoney(ca)} F
-            </Text>
+            <Text className="text-sm font-bold text-success">{formatMoney(ca)} F</Text>
           </View>
-
           <View className="h-px bg-border my-2" />
           <Text className="text-xs text-muted mb-2 mt-2">CHARGES — détail</Text>
-
-          {expenses.map((exp) => (
+          {expenseList.map((exp) => (
             <View key={exp.category} className="flex-row justify-between mb-2">
               <Text className="text-sm text-muted">{exp.category}</Text>
               <Text className="text-sm text-foreground">{formatMoney(exp.total)} F</Text>
             </View>
           ))}
-
           <View className="h-px bg-border my-2" />
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm font-medium text-foreground">Total charges</Text>
-            <Text className="text-sm font-bold text-error">
-              {formatMoney(totalExpenses)} F
-            </Text>
+            <Text className="text-sm font-bold text-error">{formatMoney(totalExpenses)} F</Text>
           </View>
-
           <View className="h-px bg-border my-2" />
           <View className="flex-row justify-between mt-2">
             <Text className="text-base font-bold text-foreground">Résultat net</Text>
-            <Text
-              className={`text-base font-bold ${
-                resultatNet >= 0 ? "text-success" : "text-error"
-              }`}
-            >
+            <Text className={`text-base font-bold ${resultatNet >= 0 ? "text-success" : "text-error"}`}>
               {formatMoney(resultatNet)} F
             </Text>
           </View>
@@ -161,29 +113,20 @@ export default function RapportsScreen() {
 
         {/* Rentabilité */}
         <View className="bg-surface rounded-xl p-4 border border-border mb-4">
-          <Text className="text-sm font-semibold text-foreground mb-4">
-            RENTABILITÉ
-          </Text>
-
+          <Text className="text-sm font-semibold text-foreground mb-4">RENTABILITÉ</Text>
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm text-muted">Prix de vente / pack</Text>
             <Text className="text-sm font-semibold text-foreground">{prixVente} F</Text>
           </View>
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm text-muted">Coût de revient / pack</Text>
-            <Text className="text-sm font-semibold text-foreground">
-              {Math.round(coutRevient)} F
-            </Text>
+            <Text className="text-sm font-semibold text-foreground">{Math.round(coutRevient)} F</Text>
           </View>
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm text-muted">Marge nette / pack</Text>
-            <Text className="text-sm font-bold text-success">
-              {Math.round(margeParPack)} F
-            </Text>
+            <Text className="text-sm font-bold text-success">{Math.round(margeParPack)} F</Text>
           </View>
-
           <View className="h-px bg-border my-2" />
-
           <View className="flex-row justify-between mb-2 mt-2">
             <Text className="text-sm text-muted">Production ce mois</Text>
             <Text className="text-sm font-semibold text-foreground">{prodMonth} packs</Text>
@@ -194,17 +137,19 @@ export default function RapportsScreen() {
           </View>
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm text-muted">Bénéfice net mensuel</Text>
-            <Text className="text-sm font-bold text-success">
-              {formatMoney(salesMonth * margeParPack)} F
-            </Text>
+            <Text className="text-sm font-bold text-success">{formatMoney(salesMonth * margeParPack)} F</Text>
           </View>
+          {seuilRentabilite > 0 && (
+            <View className="flex-row justify-between mb-2">
+              <Text className="text-sm text-muted">Seuil de rentabilité</Text>
+              <Text className="text-sm font-semibold text-foreground">{seuilRentabilite} packs</Text>
+            </View>
+          )}
         </View>
 
         {/* Indicateurs */}
         <View className="bg-surface rounded-xl p-4 border border-border">
-          <Text className="text-sm font-semibold text-foreground mb-4">
-            INDICATEURS CLÉS
-          </Text>
+          <Text className="text-sm font-semibold text-foreground mb-4">INDICATEURS CLÉS</Text>
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm text-muted">Taux de marge</Text>
             <Text className="text-sm font-semibold text-foreground">
@@ -213,9 +158,7 @@ export default function RapportsScreen() {
           </View>
           <View className="flex-row justify-between mb-2">
             <Text className="text-sm text-muted">CA mensuel</Text>
-            <Text className="text-sm font-semibold text-foreground">
-              {formatMoney(ca)} F
-            </Text>
+            <Text className="text-sm font-semibold text-foreground">{formatMoney(ca)} F</Text>
           </View>
         </View>
       </ScrollView>

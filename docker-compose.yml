@@ -1,4 +1,23 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: "4000"
+      NODE_ENV: development
+      DATABASE_URL: "file:/app/data/aquasachet.db"
+    volumes:
+      - aquasachet-db:/app/data
+      # Hot-reload: mount source so tsx watch picks up changes
+      - ./server:/app/server
+      - ./drizzle:/app/drizzle
+      - ./shared:/app/shared
+      - ./lib/store.ts:/app/lib/store.ts
+
   db:
     image: postgres:16
     restart: unless-stopped
@@ -33,3 +52,4 @@ services:
 volumes:
   pgdata:
   odoo-data:
+  aquasachet-db:

@@ -1,7 +1,10 @@
-import { ScrollView, Text, View, RefreshControl } from "react-native";
+import { ScrollView, Text, View, RefreshControl, TouchableOpacity } from "react-native";
+import { useRouter } from "expo-router";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useDbProduction, useDbSales, useDbExpenses, useDbRecovery, useDbSettings } from "@/hooks/use-db";
+import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
 function getToday(): string {
@@ -13,7 +16,19 @@ function getCurrentMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function fmt(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return `${Math.round(n)}`;
+}
+
+function fmtFull(n: number): string {
+  return Math.round(n).toLocaleString("fr-FR");
+}
+
 export default function DashboardScreen() {
+  const router = useRouter();
+  const colors = useColors();
   const utils = trpc.useUtils();
 
   const dbProduction = useDbProduction();
@@ -22,12 +37,7 @@ export default function DashboardScreen() {
   const dbRecovery = useDbRecovery();
   const dbSettings = useDbSettings();
 
-  const isLoading =
-    dbProduction.isLoading || dbSales.isLoading || dbExpenses.isLoading || dbRecovery.isLoading;
-
-  const onRefresh = async () => {
-    await utils.db.invalidate();
-  };
+  const isLoading = dbProduction.isLoading || dbSales.isLoading || dbExpenses.isLoading;
 
   const today = getToday();
   const currentMonth = getCurrentMonth();
@@ -38,128 +48,249 @@ export default function DashboardScreen() {
   const expenses = dbExpenses.data ?? [];
   const recoveries = dbRecovery.data ?? [];
 
-  // KPI du jour
-  const prodToday = production
-    .filter((p) => p.date === today)
-    .reduce((sum, p) => sum + p.quantity, 0);
-
-  const salesToday = sales.filter((s) => s.date === today);
-  const caToday = salesToday.reduce((sum, s) => sum + s.amount, 0);
-  const expToday = expenses
-    .filter((e) => e.date === today)
-    .reduce((sum, e) => sum + e.amount, 0);
+  // Today
+  const prodToday = production.filter((p) => p.date === today).reduce((s, p) => s + p.quantity, 0);
+  const caToday = sales.filter((s) => s.date === today).reduce((s, v) => s + v.amount, 0);
+  const cashToday = sales.filter((s) => s.date === today && s.mode === "cash").reduce((s, v) => s + v.amount, 0);
+  const expToday = expenses.filter((e) => e.date === today).reduce((s, e) => s + e.amount, 0);
   const beneficeToday = caToday - expToday;
 
-  // KPI du mois
-  const prodMonth = production
-    .filter((p) => p.date.startsWith(currentMonth))
-    .reduce((sum, p) => sum + p.quantity, 0);
-
-  const caMonth = sales
-    .filter((s) => s.date.startsWith(currentMonth))
-    .reduce((sum, s) => sum + s.amount, 0);
-  const expMonth = expenses
-    .filter((e) => e.date.startsWith(currentMonth))
-    .reduce((sum, e) => sum + e.amount, 0);
+  // Month
+  const prodMonth = production.filter((p) => p.date.startsWith(currentMonth)).reduce((s, p) => s + p.quantity, 0);
+  const caMonth = sales.filter((s) => s.date.startsWith(currentMonth)).reduce((s, v) => s + v.amount, 0);
+  const expMonth = expenses.filter((e) => e.date.startsWith(currentMonth)).reduce((s, e) => s + e.amount, 0);
+  const beneficeMonth = caMonth - expMonth;
 
   // Stock
-  const totalProd = production.reduce((sum, p) => sum + p.quantity, 0);
-  const totalVendu = sales.reduce((sum, s) => sum + s.quantity, 0);
+  const totalProd = production.reduce((s, p) => s + p.quantity, 0);
+  const totalVendu = sales.reduce((s, v) => s + v.quantity, 0);
   const stockRestant = totalProd - totalVendu;
 
-  // Recouvrement
+  // Recovery
   const enCours = recoveries.filter((r) => r.status === "en_cours");
-  const totalARecouvrer = enCours.reduce((sum, r) => sum + r.amount, 0);
   const enRetard = recoveries.filter((r) => r.status === "en_retard");
+  const totalARecouvrer = [...enCours, ...enRetard].reduce((s, r) => s + r.amount, 0);
+
+  const todayDate = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <ScreenContainer>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 32 }}
-        refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={onRefresh} />
-        }
+        contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => utils.db.invalidate()} />}
       >
         {/* Header */}
-        <View className="px-4 pt-4 pb-2">
-          <Text className="text-2xl font-bold text-foreground">AquaSachet</Text>
-          <Text className="text-sm text-muted mt-1">Tableau de bord</Text>
+        <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 8 }}>
+          <Text style={{ fontSize: 22, fontWeight: "700", color: colors.foreground }}>
+            Tableau de bord
+          </Text>
+          <Text style={{ fontSize: 13, color: colors.muted, marginTop: 3, textTransform: "capitalize" }}>
+            {todayDate}
+          </Text>
         </View>
 
-        {/* KPI du jour */}
-        <View className="px-4 mt-4">
-          <Text className="text-base font-semibold text-foreground mb-3">Aujourd'hui</Text>
-          <View className="flex-row flex-wrap gap-3">
-            <KPICard title="Production" value={`${prodToday}`} subtitle="packs" color="bg-primary" />
-            <KPICard title="Chiffre d'affaires" value={formatMoney(caToday)} subtitle="FCFA" color="bg-success" />
-            <KPICard title="Dépenses" value={formatMoney(expToday)} subtitle="FCFA" color="bg-warning" />
-            <KPICard
-              title="Bénéfice brut"
-              value={formatMoney(beneficeToday)}
-              subtitle="FCFA"
-              color={beneficeToday >= 0 ? "bg-success" : "bg-error"}
+        {/* Today KPIs */}
+        <View style={{ paddingHorizontal: 24, marginTop: 16 }}>
+          <SectionLabel label="Aujourd'hui" />
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
+            <KPI
+              icon="precision-manufacturing"
+              label="Production"
+              value={`${prodToday}`}
+              unit="packs"
+              color="#0077B6"
+              colors={colors}
+            />
+            <KPI
+              icon="shopping-cart"
+              label="CA du jour"
+              value={fmt(caToday)}
+              unit="FCFA"
+              color="#10B981"
+              colors={colors}
+            />
+          </View>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+            <KPI
+              icon="receipt-long"
+              label="Dépenses"
+              value={fmt(expToday)}
+              unit="FCFA"
+              color="#F59E0B"
+              colors={colors}
+            />
+            <KPI
+              icon="trending-up"
+              label="Bénéfice"
+              value={fmt(beneficeToday)}
+              unit="FCFA"
+              color={beneficeToday >= 0 ? "#10B981" : "#EF4444"}
+              colors={colors}
             />
           </View>
         </View>
 
-        {/* KPI du mois */}
-        <View className="px-4 mt-6">
-          <Text className="text-base font-semibold text-foreground mb-3">Ce mois</Text>
-          <View className="flex-row flex-wrap gap-3">
-            <KPICard title="Production" value={`${prodMonth}`} subtitle="packs" color="bg-primary" />
-            <KPICard title="CA mensuel" value={formatMoney(caMonth)} subtitle="FCFA" color="bg-success" />
-            <KPICard title="Dépenses" value={formatMoney(expMonth)} subtitle="FCFA" color="bg-warning" />
+        {/* Month KPIs */}
+        <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+          <SectionLabel label="Ce mois" />
+          <View style={{
+            backgroundColor: colors.surface,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            marginTop: 8,
+            overflow: "hidden",
+          }}>
+            <MonthRow label="Production" value={`${prodMonth} packs`} icon="precision-manufacturing" color="#0077B6" colors={colors} />
+            <Divider colors={colors} />
+            <MonthRow label="Chiffre d'affaires" value={`${fmt(caMonth)} F`} icon="shopping-cart" color="#10B981" colors={colors} />
+            <Divider colors={colors} />
+            <MonthRow label="Dépenses" value={`${fmt(expMonth)} F`} icon="receipt-long" color="#F59E0B" colors={colors} />
+            <Divider colors={colors} />
+            <MonthRow
+              label="Bénéfice"
+              value={`${beneficeMonth >= 0 ? "+" : ""}${fmt(beneficeMonth)} F`}
+              icon="trending-up"
+              color={beneficeMonth >= 0 ? "#10B981" : "#EF4444"}
+              colors={colors}
+              bold
+            />
           </View>
         </View>
 
-        {/* Stock & Recouvrement */}
-        <View className="px-4 mt-6">
-          <Text className="text-base font-semibold text-foreground mb-3">Stock & Recouvrement</Text>
-          <View className="bg-surface rounded-xl p-4 border border-border">
-            <View className="flex-row justify-between mb-3">
+        {/* Stock card */}
+        <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+          <SectionLabel label="Stock" />
+          <TouchableOpacity
+            onPress={() => router.push("/stock" as any)}
+            activeOpacity={0.7}
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 18,
+              marginTop: 8,
+            }}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
               <View>
-                <Text className="text-sm text-muted">Stock restant</Text>
-                <Text className="text-xl font-bold text-foreground">{stockRestant} packs</Text>
+                <Text style={{ fontSize: 12, color: colors.muted, fontWeight: "500" }}>STOCK RESTANT</Text>
+                <Text style={{
+                  fontSize: 32,
+                  fontWeight: "700",
+                  color: stockRestant > 100 ? colors.foreground : stockRestant > 0 ? "#F59E0B" : "#EF4444",
+                  marginTop: 4,
+                }}>
+                  {stockRestant}
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.muted }}>packs disponibles</Text>
               </View>
-              <View className="items-end">
-                <Text className="text-sm text-muted">Valeur stock</Text>
-                <Text className="text-xl font-bold text-foreground">
-                  {formatMoney(stockRestant * prixVente)} F
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ fontSize: 12, color: colors.muted, fontWeight: "500" }}>VALEUR</Text>
+                <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground, marginTop: 4 }}>
+                  {fmt(stockRestant * prixVente)} F
+                </Text>
+                <View style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  marginTop: 6,
+                  backgroundColor: colors.primary + "12",
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 20,
+                }}>
+                  <Text style={{ fontSize: 11, color: colors.primary }}>Voir détails</Text>
+                  <MaterialIcons name="chevron-right" size={14} color={colors.primary} />
+                </View>
+              </View>
+            </View>
+
+            {/* Progress bar */}
+            <View style={{ marginTop: 16 }}>
+              <View style={{ height: 6, backgroundColor: colors.border, borderRadius: 3, overflow: "hidden" }}>
+                <View style={{
+                  height: "100%",
+                  borderRadius: 3,
+                  backgroundColor: stockRestant > 100 ? "#10B981" : stockRestant > 0 ? "#F59E0B" : "#EF4444",
+                  width: `${Math.min((stockRestant / Math.max(totalProd, 1)) * 100, 100)}%`,
+                }} />
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 5 }}>
+                <Text style={{ fontSize: 10, color: colors.muted }}>Produit: {totalProd}</Text>
+                <Text style={{ fontSize: 10, color: colors.muted }}>Vendu: {totalVendu}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Recovery card */}
+        <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+          <SectionLabel label="Recouvrement" />
+          <TouchableOpacity
+            onPress={() => router.push("/recouvrement" as any)}
+            activeOpacity={0.7}
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 18,
+              marginTop: 8,
+            }}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, color: colors.muted, fontWeight: "500", marginBottom: 4 }}>
+                  À RECOUVRER
+                </Text>
+                <Text style={{ fontSize: 22, fontWeight: "700", color: "#F59E0B" }}>
+                  {fmt(totalARecouvrer)} F
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+                  {enCours.length} en cours · {enRetard.length} en retard
                 </Text>
               </View>
+              {enRetard.length > 0 && (
+                <View style={{
+                  backgroundColor: "#EF444415",
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                  <Text style={{ fontSize: 20, fontWeight: "700", color: "#EF4444" }}>{enRetard.length}</Text>
+                  <Text style={{ fontSize: 10, color: "#EF4444", fontWeight: "500" }}>EN RETARD</Text>
+                </View>
+              )}
             </View>
-            <View className="h-px bg-border my-2" />
-            <View className="flex-row justify-between mt-2">
-              <View>
-                <Text className="text-sm text-muted">À recouvrer</Text>
-                <Text className="text-lg font-semibold text-warning">{formatMoney(totalARecouvrer)} F</Text>
-              </View>
-              <View className="items-end">
-                <Text className="text-sm text-muted">En retard</Text>
-                <Text className="text-lg font-semibold text-error">{enRetard.length} crédit(s)</Text>
-              </View>
-            </View>
-          </View>
+          </TouchableOpacity>
         </View>
 
-        {/* Alertes */}
+        {/* Alerts */}
         {(stockRestant <= 50 || enRetard.length > 0) && (
-          <View className="px-4 mt-6">
-            <Text className="text-base font-semibold text-foreground mb-3">Alertes</Text>
-            {stockRestant <= 50 && (
-              <View className="bg-warning/10 rounded-lg p-3 mb-2 border border-warning/30">
-                <Text className="text-sm text-foreground">
-                  Stock bas : {stockRestant} packs restants
-                </Text>
-              </View>
-            )}
-            {enRetard.length > 0 && (
-              <View className="bg-error/10 rounded-lg p-3 border border-error/30">
-                <Text className="text-sm text-foreground">
-                  {enRetard.length} crédit(s) en retard de paiement
-                </Text>
-              </View>
-            )}
+          <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+            <SectionLabel label="Alertes" />
+            <View style={{ marginTop: 8, gap: 8 }}>
+              {stockRestant <= 50 && (
+                <Alert
+                  icon="warning"
+                  color="#F59E0B"
+                  message={`Stock bas — seulement ${stockRestant} packs restants`}
+                  colors={colors}
+                />
+              )}
+              {enRetard.length > 0 && (
+                <Alert
+                  icon="error-outline"
+                  color="#EF4444"
+                  message={`${enRetard.length} crédit(s) en retard de paiement`}
+                  colors={colors}
+                />
+              )}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -167,23 +298,87 @@ export default function DashboardScreen() {
   );
 }
 
-function KPICard({
-  title, value, subtitle, color,
-}: {
-  title: string; value: string; subtitle: string; color: string;
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <Text style={{ fontSize: 11, fontWeight: "600", color: "#6B7280", letterSpacing: 0.6, textTransform: "uppercase" }}>
+      {label}
+    </Text>
+  );
+}
+
+function KPI({ icon, label, value, unit, color, colors }: {
+  icon: string; label: string; value: string; unit: string; color: string; colors: any;
 }) {
   return (
-    <View className="bg-surface rounded-xl p-3 border border-border" style={{ width: "47%" }}>
-      <View className={`w-2 h-2 rounded-full ${color} mb-2`} />
-      <Text className="text-xs text-muted">{title}</Text>
-      <Text className="text-lg font-bold text-foreground mt-1">{value}</Text>
-      <Text className="text-xs text-muted">{subtitle}</Text>
+    <View style={{
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 16,
+    }}>
+      <View style={{
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: color + "15",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 10,
+      }}>
+        <MaterialIcons name={icon as any} size={17} color={color} />
+      </View>
+      <Text style={{ fontSize: 22, fontWeight: "700", color: colors.foreground }}>{value}</Text>
+      <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>{label}</Text>
+      <Text style={{ fontSize: 10, color: color, fontWeight: "500", marginTop: 1 }}>{unit}</Text>
     </View>
   );
 }
 
-function formatMoney(amount: number): string {
-  if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
-  if (amount >= 1000) return `${Math.round(amount / 1000)}k`;
-  return `${Math.round(amount)}`;
+function MonthRow({ label, value, icon, color, colors, bold }: {
+  label: string; value: string; icon: string; color: string; colors: any; bold?: boolean;
+}) {
+  return (
+    <View style={{
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      gap: 12,
+    }}>
+      <MaterialIcons name={icon as any} size={16} color={color} />
+      <Text style={{ flex: 1, fontSize: 13, color: colors.foreground, fontWeight: bold ? "600" : "400" }}>
+        {label}
+      </Text>
+      <Text style={{ fontSize: 14, fontWeight: bold ? "700" : "600", color: bold ? color : colors.foreground }}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Divider({ colors }: { colors: any }) {
+  return <View style={{ height: 1, backgroundColor: colors.border, marginHorizontal: 16 }} />;
+}
+
+function Alert({ icon, color, message, colors }: {
+  icon: string; color: string; message: string; colors: any;
+}) {
+  return (
+    <View style={{
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      backgroundColor: color + "10",
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: color + "25",
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+    }}>
+      <MaterialIcons name={icon as any} size={17} color={color} />
+      <Text style={{ fontSize: 13, color: colors.foreground, flex: 1 }}>{message}</Text>
+    </View>
+  );
 }
