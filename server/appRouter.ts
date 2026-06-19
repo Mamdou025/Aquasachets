@@ -3,7 +3,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import * as schema from "../drizzle/schema";
-import { DEFAULT_SETTINGS } from "../lib/store";
+import { DEFAULT_SETTINGS } from "../shared/settings";
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);

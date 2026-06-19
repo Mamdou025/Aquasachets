@@ -1,24 +1,11 @@
-import { useCallback, useState } from "react";
 import { ScrollView, Text, View, RefreshControl } from "react-native";
-import { useFocusEffect } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
-import {
-  ProductionStore,
-  SaleStore,
-  ExpenseStore,
-  RecoveryStore,
-  SettingsStore,
-  type ProductionEntry,
-  type SaleEntry,
-  type ExpenseEntry,
-  type RecoveryEntry,
-  type Settings,
-} from "@/lib/store";
+import { useDbProduction, useDbSales, useDbExpenses, useDbRecovery, useDbSettings } from "@/hooks/use-db";
+import { trpc } from "@/lib/trpc";
 
 function getToday(): string {
-  const d = new Date();
-  return d.toISOString().split("T")[0];
+  return new Date().toISOString().split("T")[0];
 }
 
 function getCurrentMonth(): string {
@@ -27,43 +14,29 @@ function getCurrentMonth(): string {
 }
 
 export default function DashboardScreen() {
-  const [refreshing, setRefreshing] = useState(false);
-  const [production, setProduction] = useState<ProductionEntry[]>([]);
-  const [sales, setSales] = useState<SaleEntry[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
-  const [recoveries, setRecoveries] = useState<RecoveryEntry[]>([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const utils = trpc.useUtils();
 
-  const loadData = useCallback(async () => {
-    const [prod, sal, exp, rec, sett] = await Promise.all([
-      ProductionStore.getAll(),
-      SaleStore.getAll(),
-      ExpenseStore.getAll(),
-      RecoveryStore.getAll(),
-      SettingsStore.get(),
-    ]);
-    setProduction(prod);
-    setSales(sal);
-    setExpenses(exp);
-    setRecoveries(rec);
-    setSettings(sett);
-  }, []);
+  const dbProduction = useDbProduction();
+  const dbSales = useDbSales();
+  const dbExpenses = useDbExpenses();
+  const dbRecovery = useDbRecovery();
+  const dbSettings = useDbSettings();
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  const isLoading =
+    dbProduction.isLoading || dbSales.isLoading || dbExpenses.isLoading || dbRecovery.isLoading;
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  }, [loadData]);
+  const onRefresh = async () => {
+    await utils.db.invalidate();
+  };
 
   const today = getToday();
   const currentMonth = getCurrentMonth();
-  const prixVente = settings?.prixVentePack ?? 650;
+  const prixVente = dbSettings.data?.prixVentePack ?? 650;
+
+  const production = dbProduction.data ?? [];
+  const sales = dbSales.data ?? [];
+  const expenses = dbExpenses.data ?? [];
+  const recoveries = dbRecovery.data ?? [];
 
   // KPI du jour
   const prodToday = production
@@ -82,8 +55,9 @@ export default function DashboardScreen() {
     .filter((p) => p.date.startsWith(currentMonth))
     .reduce((sum, p) => sum + p.quantity, 0);
 
-  const salesMonth = sales.filter((s) => s.date.startsWith(currentMonth));
-  const caMonth = salesMonth.reduce((sum, s) => sum + s.amount, 0);
+  const caMonth = sales
+    .filter((s) => s.date.startsWith(currentMonth))
+    .reduce((sum, s) => sum + s.amount, 0);
   const expMonth = expenses
     .filter((e) => e.date.startsWith(currentMonth))
     .reduce((sum, e) => sum + e.amount, 0);
@@ -103,7 +77,7 @@ export default function DashboardScreen() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={isLoading} onRefresh={onRefresh} />
         }
       >
         {/* Header */}
@@ -114,28 +88,11 @@ export default function DashboardScreen() {
 
         {/* KPI du jour */}
         <View className="px-4 mt-4">
-          <Text className="text-base font-semibold text-foreground mb-3">
-            Aujourd'hui
-          </Text>
+          <Text className="text-base font-semibold text-foreground mb-3">Aujourd'hui</Text>
           <View className="flex-row flex-wrap gap-3">
-            <KPICard
-              title="Production"
-              value={`${prodToday}`}
-              subtitle="packs"
-              color="bg-primary"
-            />
-            <KPICard
-              title="Chiffre d'affaires"
-              value={formatMoney(caToday)}
-              subtitle="FCFA"
-              color="bg-success"
-            />
-            <KPICard
-              title="Dépenses"
-              value={formatMoney(expToday)}
-              subtitle="FCFA"
-              color="bg-warning"
-            />
+            <KPICard title="Production" value={`${prodToday}`} subtitle="packs" color="bg-primary" />
+            <KPICard title="Chiffre d'affaires" value={formatMoney(caToday)} subtitle="FCFA" color="bg-success" />
+            <KPICard title="Dépenses" value={formatMoney(expToday)} subtitle="FCFA" color="bg-warning" />
             <KPICard
               title="Bénéfice brut"
               value={formatMoney(beneficeToday)}
@@ -147,43 +104,22 @@ export default function DashboardScreen() {
 
         {/* KPI du mois */}
         <View className="px-4 mt-6">
-          <Text className="text-base font-semibold text-foreground mb-3">
-            Ce mois
-          </Text>
+          <Text className="text-base font-semibold text-foreground mb-3">Ce mois</Text>
           <View className="flex-row flex-wrap gap-3">
-            <KPICard
-              title="Production"
-              value={`${prodMonth}`}
-              subtitle="packs"
-              color="bg-primary"
-            />
-            <KPICard
-              title="CA mensuel"
-              value={formatMoney(caMonth)}
-              subtitle="FCFA"
-              color="bg-success"
-            />
-            <KPICard
-              title="Dépenses"
-              value={formatMoney(expMonth)}
-              subtitle="FCFA"
-              color="bg-warning"
-            />
+            <KPICard title="Production" value={`${prodMonth}`} subtitle="packs" color="bg-primary" />
+            <KPICard title="CA mensuel" value={formatMoney(caMonth)} subtitle="FCFA" color="bg-success" />
+            <KPICard title="Dépenses" value={formatMoney(expMonth)} subtitle="FCFA" color="bg-warning" />
           </View>
         </View>
 
         {/* Stock & Recouvrement */}
         <View className="px-4 mt-6">
-          <Text className="text-base font-semibold text-foreground mb-3">
-            Stock & Recouvrement
-          </Text>
+          <Text className="text-base font-semibold text-foreground mb-3">Stock & Recouvrement</Text>
           <View className="bg-surface rounded-xl p-4 border border-border">
             <View className="flex-row justify-between mb-3">
               <View>
                 <Text className="text-sm text-muted">Stock restant</Text>
-                <Text className="text-xl font-bold text-foreground">
-                  {stockRestant} packs
-                </Text>
+                <Text className="text-xl font-bold text-foreground">{stockRestant} packs</Text>
               </View>
               <View className="items-end">
                 <Text className="text-sm text-muted">Valeur stock</Text>
@@ -196,15 +132,11 @@ export default function DashboardScreen() {
             <View className="flex-row justify-between mt-2">
               <View>
                 <Text className="text-sm text-muted">À recouvrer</Text>
-                <Text className="text-lg font-semibold text-warning">
-                  {formatMoney(totalARecouvrer)} F
-                </Text>
+                <Text className="text-lg font-semibold text-warning">{formatMoney(totalARecouvrer)} F</Text>
               </View>
               <View className="items-end">
                 <Text className="text-sm text-muted">En retard</Text>
-                <Text className="text-lg font-semibold text-error">
-                  {enRetard.length} crédit(s)
-                </Text>
+                <Text className="text-lg font-semibold text-error">{enRetard.length} crédit(s)</Text>
               </View>
             </View>
           </View>
@@ -213,9 +145,7 @@ export default function DashboardScreen() {
         {/* Alertes */}
         {(stockRestant <= 50 || enRetard.length > 0) && (
           <View className="px-4 mt-6">
-            <Text className="text-base font-semibold text-foreground mb-3">
-              Alertes
-            </Text>
+            <Text className="text-base font-semibold text-foreground mb-3">Alertes</Text>
             {stockRestant <= 50 && (
               <View className="bg-warning/10 rounded-lg p-3 mb-2 border border-warning/30">
                 <Text className="text-sm text-foreground">
@@ -238,15 +168,9 @@ export default function DashboardScreen() {
 }
 
 function KPICard({
-  title,
-  value,
-  subtitle,
-  color,
+  title, value, subtitle, color,
 }: {
-  title: string;
-  value: string;
-  subtitle: string;
-  color: string;
+  title: string; value: string; subtitle: string; color: string;
 }) {
   return (
     <View className="bg-surface rounded-xl p-3 border border-border" style={{ width: "47%" }}>
@@ -259,11 +183,7 @@ function KPICard({
 }
 
 function formatMoney(amount: number): string {
-  if (amount >= 1000000) {
-    return `${(amount / 1000000).toFixed(1)}M`;
-  }
-  if (amount >= 1000) {
-    return `${Math.round(amount / 1000)}k`;
-  }
+  if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
+  if (amount >= 1000) return `${Math.round(amount / 1000)}k`;
   return `${Math.round(amount)}`;
 }
