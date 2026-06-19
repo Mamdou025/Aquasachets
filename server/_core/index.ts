@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
+import fs from "fs";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -82,14 +84,38 @@ async function startServer() {
     }),
   );
 
+  // In production, serve the exported Expo web static build and SPA fallback
+  if (process.env.NODE_ENV === "production") {
+    const webDistPath = path.resolve(process.cwd(), "dist/web");
+    if (fs.existsSync(webDistPath)) {
+      app.use(express.static(webDistPath));
+      app.get("*", (req, res, next) => {
+        if (req.path.startsWith("/api/")) return next();
+        const indexPath = path.join(webDistPath, "index.html");
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          next();
+        }
+      });
+    }
+  }
+
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+
+  // In production the platform health check expects the exact configured port —
+  // never drift to another port. In development, fall back to a free port.
+  const port =
+    process.env.NODE_ENV === "production"
+      ? preferredPort
+      : await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
+  // Bind explicitly to 0.0.0.0 so the production health check can reach the server
+  server.listen(port, "0.0.0.0", () => {
     console.log(`[api] server listening on port ${port}`);
   });
 }
