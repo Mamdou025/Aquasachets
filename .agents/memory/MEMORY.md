@@ -1,0 +1,1 @@
+- [libsql vs Replit DATABASE_URL](libsql-database-url.md) — app uses libsql/SQLite; must reject Replit's auto-injected Postgres DATABASE_URL or it crashes on startup.

@@ -7,22 +7,36 @@ import * as schema from "../drizzle/schema";
 import type { InsertUser } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
-const DB_FILE = process.env.DATABASE_URL
-  ? process.env.DATABASE_URL
-  : path.resolve(process.cwd(), "data/aquasachet.db");
+const LOCAL_SQLITE = path.resolve(process.cwd(), "data/aquasachet.db");
+
+// Replit auto-injects DATABASE_URL as a PostgreSQL URL (postgres:// / postgresql://).
+// libsql only speaks SQLite/Turso — passing a Postgres URL crashes on startup.
+// Only use DATABASE_URL if it is a libsql-compatible URL; otherwise fall back to
+// the local SQLite file which works in both dev and single-instance production.
+function resolveDbUrl(): string {
+  const raw = process.env.DATABASE_URL ?? "";
+  if (
+    raw.startsWith("libsql://") ||
+    raw.startsWith("http://") ||
+    raw.startsWith("https://") ||
+    raw.startsWith("file:")
+  ) {
+    return raw;
+  }
+  // Postgres URL or empty — use local SQLite
+  return `file:${LOCAL_SQLITE}`;
+}
+
+const DB_URL = resolveDbUrl();
 
 // Ensure the data directory exists before libsql tries to open the file
 function ensureDataDir() {
-  if (DB_FILE.startsWith("file:") || !DB_FILE.includes("://")) {
-    const filePath = DB_FILE.replace(/^file:/, "");
+  if (DB_URL.startsWith("file:")) {
+    const filePath = DB_URL.replace(/^file:/, "");
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
 }
-
-const DB_URL = DB_FILE.startsWith("libsql://") || DB_FILE.startsWith("http")
-  ? DB_FILE
-  : `file:${DB_FILE.replace(/^file:/, "")}`;
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
